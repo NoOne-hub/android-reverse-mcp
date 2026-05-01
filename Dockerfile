@@ -23,7 +23,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH=/opt/android-reverse-mcp-venv/bin:/app/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-21-jre-headless \
+    openjdk-21-jdk-headless \
     ca-certificates \
     curl \
     unzip \
