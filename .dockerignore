@@ -1,0 +1,9 @@
+.git
+.venv
+__pycache__
+*.pyc
+workspace
+samples
+java-backend/target
+src/*.egg-info
+src/headless_jadx_mcp.egg-info

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "android-reverse-mcp"
+version = "0.1.0"
+description = "Unified MCP gateway for Android reverse engineering: JADX, APKTool, Sign Tools, Diff, and optional native sidecars"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastmcp>=3.0.2",
+  "httpx>=0.27",
+]
+
+[project.scripts]
+android_reverse_mcp = "android_reverse_mcp.server:main"
+headless_jadx_mcp = "headless_jadx_mcp.server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

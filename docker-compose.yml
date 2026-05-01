@@ -1,0 +1,13 @@
+services:
+  android-reverse-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: android-reverse-mcp:latest
+    container_name: android-reverse-mcp
+    ports:
+      - "8651:8651"
+    volumes:
+      - ./samples:/input:ro
+      - ./workspace:/workspace
+    command: ["--http", "--host", "0.0.0.0", "--port", "8651", "--apk", "/input/TestActivity.apk", "--decode-on-start"]

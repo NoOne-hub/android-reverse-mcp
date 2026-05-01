@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+workspace/
+java-backend/target/
+.DS_Store
+*.log
