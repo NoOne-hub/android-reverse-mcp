@@ -17,7 +17,7 @@ def generate_debug_keystore(
     validity_days: int = 10000,
     project_id: str | None = None,
 ) -> dict:
-    ensure_command("keytool")
+    keytool_bin = ensure_command("keytool")
     paths = workspace.get_project_paths(project_id)
     keystore_path = paths.keystore_dir / keystore_name
     if keystore_path.exists():
@@ -29,7 +29,7 @@ def generate_debug_keystore(
             "skipped": True,
         }
     cmd = [
-        "keytool",
+        keytool_bin,
         "-genkeypair",
         "-v",
         "-keystore",
@@ -61,9 +61,9 @@ def zipalign_apk(
     output_name: str = "aligned.apk",
     project_id: str | None = None,
 ) -> dict:
-    ensure_command("zipalign")
+    zipalign_bin = ensure_command("zipalign")
     out_path = workspace.make_output_path(output_name, project_id)
-    cmd = ["zipalign", "-f", "4", apk_path, str(out_path)]
+    cmd = [zipalign_bin, "-f", "4", apk_path, str(out_path)]
     result = run_command(cmd)
     result.update({"output_apk": str(out_path)})
     return result
@@ -80,14 +80,14 @@ def sign_apk(
     keypass: str = "android",
     project_id: str | None = None,
 ) -> dict:
-    ensure_command("apksigner")
+    apksigner_bin = ensure_command("apksigner")
     paths = workspace.get_project_paths(project_id)
     effective_keystore = Path(keystore_path) if keystore_path else paths.keystore_dir / "debug.keystore"
     if not effective_keystore.is_file():
         raise FileNotFoundError(f"keystore 不存在: {effective_keystore}")
     out_path = workspace.make_output_path(output_name, project_id)
     cmd = [
-        "apksigner",
+        apksigner_bin,
         "sign",
         "--ks",
         str(effective_keystore),
@@ -114,6 +114,6 @@ def sign_apk(
 
 
 def verify_apk_signature(apk_path: str) -> dict:
-    ensure_command("apksigner")
-    cmd = ["apksigner", "verify", "--print-certs", "--verbose", apk_path]
+    apksigner_bin = ensure_command("apksigner")
+    cmd = [apksigner_bin, "verify", "--print-certs", "--verbose", apk_path]
     return run_command(cmd)

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+JAR_PATH="${APKTOOL_JAR:-$SCRIPT_DIR/../third_party/apktool/apktool_3.0.2.jar}"
+exec java -jar "$JAR_PATH" "$@"

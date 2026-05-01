@@ -14,7 +14,7 @@ def decode_current_project(
     use_aapt2: bool = False,
     project_id: str | None = None,
 ) -> dict:
-    ensure_command("apktool")
+    apktool_bin = ensure_command("apktool")
     paths = workspace.ensure_decoded_tree(project_id)
     if force:
         shutil.rmtree(paths.baseline_dir, ignore_errors=True)
@@ -25,7 +25,7 @@ def decode_current_project(
     if any(paths.baseline_dir.iterdir()):
         baseline_status = {"ok": True, "skipped": True, "dir": str(paths.baseline_dir)}
     else:
-        cmd = ["apktool", "d", "-f", "-o", str(paths.baseline_dir), str(paths.original_apk)]
+        cmd = [apktool_bin, "d", "-f", "-o", str(paths.baseline_dir), str(paths.original_apk)]
         if use_aapt2:
             cmd.insert(2, "--use-aapt2")
         baseline_status = run_command(cmd)
@@ -57,12 +57,12 @@ def build_current_project(
     use_aapt2: bool = False,
     project_id: str | None = None,
 ) -> dict:
-    ensure_command("apktool")
+    apktool_bin = ensure_command("apktool")
     paths = workspace.ensure_decoded_tree(project_id)
     if not paths.current_dir.exists():
         raise FileNotFoundError("current 解包目录不存在，请先 decode")
     out_path = workspace.make_output_path(output_name, project_id)
-    cmd = ["apktool", "b", str(paths.current_dir), "-o", str(out_path)]
+    cmd = [apktool_bin, "b", str(paths.current_dir), "-o", str(out_path)]
     if use_aapt2:
         cmd.insert(2, "--use-aapt2")
     result = run_command(cmd)

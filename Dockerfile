@@ -10,12 +10,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     JADX_BACKEND_JAR=/opt/headless-jadx/backend/headless-jadx-backend-0.1.0.jar \
     JADX_ALL_JAR=/opt/headless-jadx/backend/jadx-1.5.5-all.jar \
     JADX_BACKEND_HOST=127.0.0.1 \
-    JADX_BACKEND_PORT=8650
+    JADX_BACKEND_PORT=8650 \
+    PATH=/app/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-21-jre-headless \
     ca-certificates \
-    apktool \
     apksigner \
     zipalign \
   && rm -rf /var/lib/apt/lists/*
@@ -23,7 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src /app/src
-RUN pip install --no-cache-dir .
+COPY bin /app/bin
+COPY third_party /app/third_party
+RUN chmod +x /app/bin/apktool && pip install --no-cache-dir .
 
 RUN mkdir -p /opt/headless-jadx/backend /input /workspace
 COPY --from=java-builder /build/target/headless-jadx-backend-0.1.0.jar /opt/headless-jadx/backend/
