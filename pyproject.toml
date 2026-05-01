@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "android-reverse-mcp"
 version = "0.1.0"
-description = "Unified MCP gateway for Android reverse engineering: JADX, APKTool, Sign Tools, Diff, and optional native sidecars"
+description = "Unified MCP gateway for Android reverse engineering: JADX, APKTool, Sign Tools, Diff, and embedded Ghidra headless analysis"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

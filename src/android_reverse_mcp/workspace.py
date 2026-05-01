@@ -36,7 +36,7 @@ class ProjectPaths:
     state_dir: Path
     keystore_dir: Path
     native_dir: Path
-    ida_dir: Path
+    ghidra_dir: Path
     metadata_file: Path
 
 
@@ -62,7 +62,7 @@ class WorkspaceManager:
             paths.state_dir,
             paths.keystore_dir,
             paths.native_dir,
-            paths.ida_dir,
+            paths.ghidra_dir,
         ]:
             directory.mkdir(parents=True, exist_ok=True)
         if not paths.original_apk.exists() or _sha256_file(paths.original_apk) != sha256:
@@ -79,7 +79,7 @@ class WorkspaceManager:
             "current_dir": str(paths.current_dir),
             "outputs_dir": str(paths.outputs_dir),
             "native_dir": str(paths.native_dir),
-            "ida_dir": str(paths.ida_dir),
+            "ghidra_dir": str(paths.ghidra_dir),
         }
         self._write_json(paths.metadata_file, metadata)
         self.set_current_project(project_root.name)
@@ -198,10 +198,10 @@ class WorkspaceManager:
                 shutil.copyfileobj(src, dst)
             return out_path
 
-    def get_ida_session_root(self, relative_path: str, project_id: str | None = None) -> Path:
+    def get_ghidra_session_root(self, relative_path: str, project_id: str | None = None) -> Path:
         paths = self.get_project_paths(project_id)
         parts = [p for p in Path(relative_path).with_suffix('').parts if p not in {'/', ''}]
-        root = paths.ida_dir
+        root = paths.ghidra_dir
         for part in parts:
             root = root / _safe_name(part)
         root.mkdir(parents=True, exist_ok=True)
@@ -231,7 +231,7 @@ class WorkspaceManager:
             state_dir=project_root / 'state',
             keystore_dir=project_root / 'keystore',
             native_dir=project_root / 'native',
-            ida_dir=project_root / 'ida',
+            ghidra_dir=project_root / 'ghidra',
             metadata_file=project_root / 'metadata.json',
         )
 

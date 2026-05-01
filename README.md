@@ -2,22 +2,22 @@
 
 一个面向 **无 GUI / Docker / Agent 自动化分析** 的 Android 逆向 MCP 入口。
 
-当前已集成：
+当前集成：
 
-- `jadx semantic`：类/方法/字段、源码、manifest、resources、xref、rename
-- `apktool`：解包、Smali/资源读写、重建
-- `sign-tools`：keystore、zipalign、签名、校验
-- `diff`：baseline/current 差异对比
-- `ida sidecar`：通过 `idalib-mcp` 无头分析 `.so`
+- `jadx semantic`：DEX/Java/Kotlin 静态分析、xref、rename、源码读取
+- `apktool`：解包、Smali/资源改写、重打包
+- `sign-tools`：zipalign、签名、校验
+- `diff`：工作区差异对比
+- `ghidra-headless-mcp`：`.so` / native 静态分析
 
 ## 特点
 
 - **单入口 MCP**
-- **双容器 compose**：主服务 + IDA sidecar
-- **工作区持久化**，支持二次进入与 rename 状态恢复
-- **固定 apktool 版本**：仓库内置官方 `apktool_3.0.2.jar`
-- **Python 环境隔离**：主服务 / sidecar / 宿主机测试都可走 `uv`
-- **IDA sidecar 不需要手工开 GUI**，后续可直接 `docker compose up -d`
+- **单容器**：不再依赖 IDA sidecar
+- **工作区持久化**
+- **固定 apktool 版本**
+- **Docker 内自动安装 Ghidra**
+- **Python 环境隔离**：统一走 `uv`
 
 ## 工作区结构
 
@@ -30,7 +30,7 @@
   outputs/
   keystore/
   native/
-  ida/
+  ghidra/
   state/project-state.json
 ```
 
@@ -38,24 +38,22 @@
 
 ### 1. 准备 `.env`
 
-复制一份：
-
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`：
+示例：
 
 ```env
 APK_PATH=/absolute/path/to/target.apk
 WORKSPACE_DIR=/absolute/path/to/android-reverse-workspace
 PORT=8651
+DECODE_ON_START=1
 
-IDA_DIR=/absolute/path/to/ida-pro
-IDA_USER_DIR=/absolute/path/to/.idapro
-IDA_MCP_PORT=8745
-IDA_MCP_ISOLATED_CONTEXTS=0
-IDA_MCP_UNSAFE=0
+GHIDRA_AUTO_START=1
+GHIDRA_HEADLESS_MCP_FAKE_BACKEND=0
+GHIDRA_BACKEND_HOST=127.0.0.1
+GHIDRA_BACKEND_PORT=8765
 ```
 
 ### 2. 一键启动
@@ -70,15 +68,7 @@ docker compose up -d --build
 http://127.0.0.1:8651/mcp
 ```
 
-IDA sidecar：
-
-```text
-http://127.0.0.1:8745/mcp
-```
-
-### 3. 单容器临时跑法
-
-如果你暂时不想走 compose，也可以继续单独跑主服务：
+## 单命令运行
 
 ```bash
 docker run --rm -it \
@@ -90,81 +80,79 @@ docker run --rm -it \
   android-reverse-mcp
 ```
 
-## IDA sidecar 说明
+## Ghidra backend 说明
 
-本项目使用 [`mrexodia/ida-pro-mcp`](https://github.com/mrexodia/ida-pro-mcp) 的 **`idalib-mcp`** 模式，而不是 GUI 插件模式。
+本项目已改为使用 [`mrphrazer/ghidra-headless-mcp`](https://github.com/mrphrazer/ghidra-headless-mcp)。
+
+容器启动时会：
+
+1. 自动启动 `jadx` backend
+2. 自动启动 `ghidra-headless-mcp` TCP backend
+3. 主 MCP 自动桥接到 Ghidra backend
 
 也就是说：
 
-- 不要求你手工打开 IDA GUI
-- 不要求你手工启动 MCP
-- `docker compose up -d` 后，主服务自动连 sidecar
-- 分析 `.so` 时通过 `idalib_open()` 动态加载
+- 不需要手工开 GUI
+- 不需要手工启动第二个 MCP
+- `.so` 分析直接走统一入口
 
-### sidecar 用到什么
+### Docker 内安装内容
 
-- 宿主机已安装好的 IDA 目录：`IDA_DIR`
-- 宿主机 IDA 用户目录：`IDA_USER_DIR`
-- 容器内会自动安装 `ida-pro-mcp`
-- sidecar 启动时自动设置：
-  - `IDADIR=/opt/ida-pro`
-  - `IDAUSR=/root/.idapro`
-  - `LD_LIBRARY_PATH=/opt/ida-pro`
+当前镜像会自动下载并安装：
 
-### 当前已知前提
+- **Ghidra 12.0.4**  
+  来源：官方 GitHub release  
+  https://github.com/NationalSecurityAgency/ghidra/releases
+- **ghidra-headless-mcp**  
+  来源：  
+  https://github.com/mrphrazer/ghidra-headless-mcp
 
-要让 `idalib_open()` 真正打开二进制，**IDA 必须已经完成 batch/headless 许可接受**。
+## 可用 Native / Ghidra Tools
 
-如果 sidecar 日志里出现：
+- `ghidra_list_remote_tools`
+- `ghidra_health`
+- `ghidra_list_sessions`
+- `ghidra_program_summary`
+- `ghidra_save_program`
+- `list_native_libraries`
+- `open_native_library`
+- `ghidra_list_functions`
+- `ghidra_decompile_function`
+- `ghidra_function_report`
+- `ghidra_xrefs_to`
+- `ghidra_xrefs_from`
+- `ghidra_rename_function`
+- `ghidra_list_variables`
+- `ghidra_rename_variable`
+- `ghidra_set_comment`
 
-```text
-License not yet accepted, cannot run in batch mode
-```
+## 推荐工作流
 
-说明不是 bridge 问题，而是 **IDA 还没完成首次接受流程**。
+### APK / DEX
 
-### 关于 WSL2
+1. `prepare_single_apk_workspace`
+2. `get_android_manifest`
+3. `get_main_activity_class`
+4. `search_method_by_name`
+5. `get_xrefs_to_method`
+6. `get_class_source`
 
-WSL2 下 IDA GUI 可能不稳定，甚至出现：
+### Native / so
 
-- 缺 OpenGL / Qt 运行库
-- `malloc(): unaligned tcache chunk detected`
-- GUI 无法正常启动
-
-这不一定影响 `idat` / `idalib-mcp` 的无头使用，但**首次许可接受**通常更容易在一个正常 GUI Linux 环境里完成。
-
-如果 WSL2 GUI 不稳定，建议：
-
-1. 在可正常显示 GUI 的 Linux 环境里先把 IDA 打开一次
-2. 走完 license / accept 流程
-3. 再把对应 `IDA_USER_DIR` 带回来用于 headless sidecar
-
-## IDA Python 绑定（可选）
-
-如果你还想在宿主机本地直接用 IDA / IDAPython，而不是只跑 sidecar，可以把 IDA 的 Python 绑到一个独立 `uv` 管理版本，不再使用系统 Python。
-
-### 安装独立 Python
-
-```bash
-uv python install 3.12.13
-```
-
-### 切给 IDA
-
-```bash
-/home/root1/tools/ida-pro/idapyswitch \
-  --force-path ~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/libpython3.12.so.1.0
-```
-
-说明：
-
-- 这是 **宿主机本地 IDA** 的 Python 绑定
-- **不是 sidecar 必需条件**
-- sidecar 自己会在容器里装独立 Python 环境
+1. `list_native_libraries`
+2. `open_native_library`
+3. 从返回值里拿 `session_id`
+4. `ghidra_list_functions`
+5. `ghidra_decompile_function`
+6. `ghidra_xrefs_to`
+7. `ghidra_rename_function`
+8. `ghidra_rename_variable`
+9. `ghidra_save_program`
 
 ## 主要 MCP Tools
 
 ### Workspace
+
 - `prepare_single_apk_workspace`
 - `workspace_import_apk`
 - `workspace_list_projects`
@@ -175,6 +163,7 @@ uv python install 3.12.13
 - `list_output_files`
 
 ### JADX
+
 - `load_apk`
 - `get_all_classes`
 - `get_class_source`
@@ -195,6 +184,7 @@ uv python install 3.12.13
 - `get_xrefs_to_field`
 
 ### Rename
+
 - `rename_class`
 - `rename_method`
 - `rename_field`
@@ -204,6 +194,7 @@ uv python install 3.12.13
 - `list_renames`
 
 ### APKTool / Build
+
 - `apktool_decode_current`
 - `apktool_reset_current`
 - `apktool_list_current_files`
@@ -213,22 +204,8 @@ uv python install 3.12.13
 - `load_rebuilt_apk_to_jadx`
 - `rebuild_and_sign_current_apk`
 
-### Native / IDA
-- `ida_list_remote_tools`
-- `ida_health`
-- `ida_list_sessions`
-- `ida_current_session`
-- `ida_save_session`
-- `list_native_libraries`
-- `open_native_library`
-- `ida_list_functions`
-- `ida_decompile_function`
-- `ida_disasm_function`
-- `ida_xrefs_to`
-- `ida_rename_function`
-- `ida_append_comment`
-
 ### Sign / Diff
+
 - `sign_generate_debug_keystore`
 - `sign_zipalign_apk`
 - `sign_apk`
@@ -236,33 +213,17 @@ uv python install 3.12.13
 - `diff_workspace_changes`
 - `diff_decoded_file`
 
-## 推荐单 APK + so 工作流
+## 开发/本地测试
 
-### 1. 准备工作区
+如果你要在宿主机直接跑 Ghidra MCP 做调试：
 
-- `prepare_single_apk_workspace`
-
-### 2. APK / DEX 分析
-
-- `get_main_activity_class`
-- `get_android_manifest`
-- `search_method_by_name`
-- `get_xrefs_to_method`
-- `get_class_source`
-
-### 3. Native 库发现
-
-- `list_native_libraries`
-
-### 4. 打开 so 到 IDA sidecar
-
-- `open_native_library`
-- `ida_current_session`
-- `ida_list_functions`
-- `ida_decompile_function`
-- `ida_xrefs_to`
-- `ida_rename_function`
-- `ida_append_comment`
+```bash
+uv venv /home/root1/tools/ghidra-headless-mcp-venv
+source /home/root1/tools/ghidra-headless-mcp-venv/bin/activate
+uv pip install "https://github.com/mrphrazer/ghidra-headless-mcp/archive/b9c491a6383dbc68c581e7fed16341ac47e7faba.zip"
+export GHIDRA_INSTALL_DIR=/path/to/ghidra
+ghidra-headless-mcp --transport tcp --host 127.0.0.1 --port 8765
+```
 
 ## GitHub 仓库元数据
 
@@ -271,20 +232,3 @@ uv python install 3.12.13
 - `.github/repository-metadata.json`
 - `scripts/apply_github_metadata.py`
 - `scripts/apply_github_metadata.sh`
-
-有 `GITHUB_TOKEN` 时可直接应用：
-
-```bash
-GITHUB_TOKEN=xxx ./scripts/apply_github_metadata.sh
-```
-
-## 路线图
-
-- 完整打通 `idalib_open()` / batch acceptance 后的联调
-- 更多 native tools（imports/exports/strings/stack/type）
-- 多 APK 差异工作流
-- 更高层自动分析 orchestrator
-
-## License
-
-Apache License 2.0

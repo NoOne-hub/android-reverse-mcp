@@ -5,35 +5,16 @@ services:
       dockerfile: Dockerfile
     image: android-reverse-mcp:latest
     container_name: android-reverse-mcp
-    depends_on:
-      - ida-sidecar
     ports:
       - "${PORT:-8651}:${PORT:-8651}"
     environment:
       APK: /input/app.apk
-      DECODE_ON_START: "1"
+      DECODE_ON_START: "${DECODE_ON_START:-1}"
       PORT: "${PORT:-8651}"
-      IDA_BACKEND_URL: "http://ida-sidecar:${IDA_MCP_PORT:-8745}"
+      GHIDRA_AUTO_START: "${GHIDRA_AUTO_START:-1}"
+      GHIDRA_HEADLESS_MCP_FAKE_BACKEND: "${GHIDRA_HEADLESS_MCP_FAKE_BACKEND:-0}"
+      GHIDRA_BACKEND_HOST: "${GHIDRA_BACKEND_HOST:-127.0.0.1}"
+      GHIDRA_BACKEND_PORT: "${GHIDRA_BACKEND_PORT:-8765}"
     volumes:
       - ${WORKSPACE_DIR}:/workspace
       - ${APK_PATH}:/input/app.apk:ro
-
-  ida-sidecar:
-    build:
-      context: .
-      dockerfile: ida-sidecar/Dockerfile
-    image: android-reverse-mcp-ida-sidecar:latest
-    container_name: ida-sidecar
-    ports:
-      - "${IDA_MCP_PORT:-8745}:${IDA_MCP_PORT:-8745}"
-    environment:
-      IDA_MCP_HOST: 0.0.0.0
-      IDA_MCP_PORT: "${IDA_MCP_PORT:-8745}"
-      IDA_MCP_ISOLATED_CONTEXTS: "${IDA_MCP_ISOLATED_CONTEXTS:-0}"
-      IDA_MCP_UNSAFE: "${IDA_MCP_UNSAFE:-0}"
-      IDADIR: /opt/ida-pro
-      IDA_USER_DIR: /root/.idapro
-    volumes:
-      - ${WORKSPACE_DIR}:/workspace
-      - ${IDA_DIR}:/opt/ida-pro:ro
-      - ${IDA_USER_DIR}:/root/.idapro

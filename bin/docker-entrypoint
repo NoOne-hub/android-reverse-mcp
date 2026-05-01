@@ -8,6 +8,20 @@ is_true() {
   esac
 }
 
+wait_for_tcp() {
+  local host="$1"
+  local port="$2"
+  local retries="${3:-120}"
+  local i
+  for ((i=0; i<retries; i++)); do
+    if bash -c "exec 3<>/dev/tcp/${host}/${port}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 if [ "$#" -gt 0 ] && [ "${1#-}" = "$1" ]; then
   exec "$@"
 fi
@@ -15,6 +29,37 @@ fi
 HOST_VALUE="${HOST:-0.0.0.0}"
 PORT_VALUE="${PORT:-8651}"
 WORKSPACE_VALUE="${WORKSPACE_DIR:-${APK_MCP_WORKSPACE:-/workspace}}"
+GHIDRA_BACKEND_HOST_VALUE="${GHIDRA_BACKEND_HOST:-127.0.0.1}"
+GHIDRA_BACKEND_PORT_VALUE="${GHIDRA_BACKEND_PORT:-8765}"
+
+if [ -z "${GHIDRA_INSTALL_DIR:-}" ] && [ -d /opt/ghidra ]; then
+  GHIDRA_INSTALL_DIR="$(find /opt/ghidra -maxdepth 1 -mindepth 1 -type d -name 'ghidra_*_PUBLIC' | sort | head -n 1 || true)"
+  export GHIDRA_INSTALL_DIR
+fi
+
+if [ -z "${GHIDRA_BACKEND:-}" ] && is_true "${GHIDRA_AUTO_START:-1}"; then
+  GHIDRA_BACKEND="tcp://${GHIDRA_BACKEND_HOST_VALUE}:${GHIDRA_BACKEND_PORT_VALUE}"
+  export GHIDRA_BACKEND
+  GHIDRA_LOG="${GHIDRA_LOG:-/tmp/ghidra-headless-mcp.log}"
+  GHIDRA_ARGS=(--transport tcp --host "$GHIDRA_BACKEND_HOST_VALUE" --port "$GHIDRA_BACKEND_PORT_VALUE")
+  if is_true "${GHIDRA_HEADLESS_MCP_FAKE_BACKEND:-0}"; then
+    GHIDRA_ARGS+=(--fake-backend)
+  elif [ -n "${GHIDRA_INSTALL_DIR:-}" ]; then
+    GHIDRA_ARGS+=(--ghidra-install-dir "$GHIDRA_INSTALL_DIR")
+  else
+    echo "[entrypoint] GHIDRA_INSTALL_DIR 未配置，且未启用 fake backend" >&2
+    exit 1
+  fi
+
+  ghidra-headless-mcp "${GHIDRA_ARGS[@]}" >"$GHIDRA_LOG" 2>&1 &
+  GHIDRA_PID=$!
+  trap 'kill ${GHIDRA_PID} >/dev/null 2>&1 || true' EXIT
+  if ! wait_for_tcp "$GHIDRA_BACKEND_HOST_VALUE" "$GHIDRA_BACKEND_PORT_VALUE" 180; then
+    echo "[entrypoint] ghidra-headless-mcp 启动失败" >&2
+    tail -n 200 "$GHIDRA_LOG" >&2 || true
+    exit 1
+  fi
+fi
 
 set -- android_reverse_mcp --http --host "$HOST_VALUE" --port "$PORT_VALUE" --workspace "$WORKSPACE_VALUE" "$@"
 
@@ -30,8 +75,8 @@ if [ -n "${BACKEND_URL:-}" ]; then
   set -- "$@" --backend-url "$BACKEND_URL"
 fi
 
-if [ -n "${IDA_BACKEND_URL:-}" ]; then
-  set -- "$@" --ida-backend-url "$IDA_BACKEND_URL"
+if [ -n "${GHIDRA_BACKEND:-}" ]; then
+  set -- "$@" --ghidra-backend "$GHIDRA_BACKEND"
 fi
 
 if [ -n "${BACKEND_JAR:-}" ]; then
