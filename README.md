@@ -68,6 +68,27 @@ docker compose up -d --build
 http://127.0.0.1:8651/mcp
 ```
 
+## 最短一键运行
+
+直接用仓库里的脚本：
+
+```bash
+./scripts/run-docker.sh /absolute/path/to/app.apk
+```
+
+可选参数：
+
+```bash
+./scripts/run-docker.sh /absolute/path/to/app.apk /absolute/path/to/workspace 8651
+```
+
+脚本行为：
+
+- 本地没有镜像时自动 `docker build`
+- 自动挂载 APK 到 `/input/app.apk`
+- 自动设置 `-e APK=/input/app.apk`
+- 自动创建持久化工作区
+
 ## 单命令运行
 
 ```bash
