@@ -8,3 +8,4 @@ workspace/
 java-backend/target/
 .DS_Store
 *.log
+.env

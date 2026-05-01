@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +35,8 @@ class ProjectPaths:
     outputs_dir: Path
     state_dir: Path
     keystore_dir: Path
+    native_dir: Path
+    ida_dir: Path
     metadata_file: Path
 
 
@@ -58,6 +61,8 @@ class WorkspaceManager:
             paths.outputs_dir,
             paths.state_dir,
             paths.keystore_dir,
+            paths.native_dir,
+            paths.ida_dir,
         ]:
             directory.mkdir(parents=True, exist_ok=True)
         if not paths.original_apk.exists() or _sha256_file(paths.original_apk) != sha256:
@@ -73,6 +78,8 @@ class WorkspaceManager:
             "baseline_dir": str(paths.baseline_dir),
             "current_dir": str(paths.current_dir),
             "outputs_dir": str(paths.outputs_dir),
+            "native_dir": str(paths.native_dir),
+            "ida_dir": str(paths.ida_dir),
         }
         self._write_json(paths.metadata_file, metadata)
         self.set_current_project(project_root.name)
@@ -145,24 +152,95 @@ class WorkspaceManager:
             "baseline_dir": str(paths.baseline_dir),
         }
 
+    def list_native_libraries(self, project_id: str | None = None, *, from_baseline: bool = False) -> dict[str, Any]:
+        paths = self.get_project_paths(project_id)
+        base = paths.baseline_dir if from_baseline else paths.current_dir
+        libraries: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        if base.exists():
+            for path in sorted(base.rglob('*.so')):
+                rel = path.relative_to(base).as_posix()
+                if not rel.startswith('lib/'):
+                    continue
+                libraries.append(self._native_info(rel, source='decoded', full_path=path))
+                seen.add(rel)
+
+        if not libraries:
+            with zipfile.ZipFile(paths.original_apk) as zf:
+                for name in sorted(zf.namelist()):
+                    if name.startswith('lib/') and name.endswith('.so'):
+                        libraries.append(self._native_info(name, source='apk-zip', full_path=None))
+                        seen.add(name)
+
+        return {
+            'ok': True,
+            'project_id': paths.root.name,
+            'from_baseline': from_baseline,
+            'libraries': libraries,
+            'total': len(libraries),
+        }
+
+    def materialize_native_library(self, relative_path: str, project_id: str | None = None, *, from_baseline: bool = False) -> Path:
+        paths = self.get_project_paths(project_id)
+        base = paths.baseline_dir if from_baseline else paths.current_dir
+        if base.exists():
+            candidate = self._resolve_under(base, relative_path)
+            if candidate.is_file():
+                return candidate
+
+        with zipfile.ZipFile(paths.original_apk) as zf:
+            if relative_path not in zf.namelist():
+                raise FileNotFoundError(f'Native 库不存在: {relative_path}')
+            out_path = self._resolve_under(paths.native_dir, relative_path)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(relative_path) as src, out_path.open('wb') as dst:
+                shutil.copyfileobj(src, dst)
+            return out_path
+
+    def get_ida_session_root(self, relative_path: str, project_id: str | None = None) -> Path:
+        paths = self.get_project_paths(project_id)
+        parts = [p for p in Path(relative_path).with_suffix('').parts if p not in {'/', ''}]
+        root = paths.ida_dir
+        for part in parts:
+            root = root / _safe_name(part)
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _native_info(self, relative_path: str, *, source: str, full_path: Path | None) -> dict[str, Any]:
+        parts = Path(relative_path).parts
+        abi = parts[1] if len(parts) >= 3 else ''
+        item = {
+            'relative_path': relative_path,
+            'abi': abi,
+            'name': Path(relative_path).name,
+            'source': source,
+        }
+        if full_path is not None:
+            item['path'] = str(full_path)
+            item['size'] = full_path.stat().st_size
+        return item
+
     def _paths(self, project_root: Path) -> ProjectPaths:
         return ProjectPaths(
             root=project_root,
-            original_apk=project_root / "original" / "app.apk",
-            baseline_dir=project_root / "decoded" / "baseline",
-            current_dir=project_root / "decoded" / "current",
-            outputs_dir=project_root / "outputs",
-            state_dir=project_root / "state",
-            keystore_dir=project_root / "keystore",
-            metadata_file=project_root / "metadata.json",
+            original_apk=project_root / 'original' / 'app.apk',
+            baseline_dir=project_root / 'decoded' / 'baseline',
+            current_dir=project_root / 'decoded' / 'current',
+            outputs_dir=project_root / 'outputs',
+            state_dir=project_root / 'state',
+            keystore_dir=project_root / 'keystore',
+            native_dir=project_root / 'native',
+            ida_dir=project_root / 'ida',
+            metadata_file=project_root / 'metadata.json',
         )
 
     def _resolve_under(self, base: Path, rel_path: str) -> Path:
         target = (base / rel_path).resolve()
         if target != base and base not in target.parents:
-            raise ValueError(f"非法路径，超出工作区: {rel_path}")
+            raise ValueError(f'非法路径，超出工作区: {rel_path}')
         return target
 
     def _write_json(self, path: Path, data: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')

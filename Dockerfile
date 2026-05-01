@@ -6,12 +6,15 @@ RUN mvn -DskipTests package
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
     APK_MCP_WORKSPACE=/workspace \
     JADX_BACKEND_JAR=/opt/headless-jadx/backend/headless-jadx-backend-0.1.0.jar \
     JADX_ALL_JAR=/opt/headless-jadx/backend/jadx-1.5.5-all.jar \
     JADX_BACKEND_HOST=127.0.0.1 \
     JADX_BACKEND_PORT=8650 \
-    PATH=/app/bin:$PATH
+    UV_LINK_MODE=copy \
+    VIRTUAL_ENV=/opt/android-reverse-mcp-venv \
+    PATH=/opt/android-reverse-mcp-venv/bin:/app/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-21-jre-headless \
@@ -25,7 +28,10 @@ COPY pyproject.toml README.md /app/
 COPY src /app/src
 COPY bin /app/bin
 COPY third_party /app/third_party
-RUN chmod +x /app/bin/apktool /app/bin/docker-entrypoint && pip install --no-cache-dir .
+RUN chmod +x /app/bin/apktool /app/bin/docker-entrypoint \
+ && pip install --no-cache-dir uv \
+ && uv venv "$VIRTUAL_ENV" \
+ && uv pip install --python "$VIRTUAL_ENV/bin/python" .
 
 RUN mkdir -p /opt/headless-jadx/backend /input /workspace
 COPY --from=java-builder /build/target/headless-jadx-backend-0.1.0.jar /opt/headless-jadx/backend/

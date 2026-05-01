@@ -13,6 +13,7 @@ from fastmcp import FastMCP
 from . import backend_client
 from .modules import apktool as apktool_mod
 from .modules import diff_tool as diff_mod
+from .modules import ida_bridge as ida_mod
 from .modules import sign_tools as sign_mod
 from .workspace import WorkspaceManager
 
@@ -653,6 +654,161 @@ async def diff_decoded_file(relative_path: str, context: int = 3) -> dict:
         return diff_mod.diff_decoded_file(_workspace(), relative_path, context=context)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _require_ida_backend() -> str:
+    if not _ida_backend_url:
+        raise RuntimeError('IDA backend 未配置，请设置 --ida-backend-url 或 IDA_BACKEND_URL')
+    return _ida_backend_url
+
+
+@mcp.tool()
+async def ida_list_remote_tools() -> dict:
+    """列出远端 idalib-mcp 暴露的 tools，用于排查 sidecar 联通情况。"""
+    try:
+        return await ida_mod.list_tools(_require_ida_backend())
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def ida_health() -> dict:
+    """探测 IDA sidecar 当前状态；即使尚未打开 so，也可用于检查联通。"""
+    try:
+        result = await ida_mod.call_tool(_require_ida_backend(), 'idalib_health', {})
+        result['ida_backend_url'] = _ida_backend_url
+        return result
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def ida_list_sessions() -> dict:
+    try:
+        return await ida_mod.call_tool(_require_ida_backend(), 'idalib_list', {})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def ida_current_session() -> dict:
+    try:
+        return await ida_mod.call_tool(_require_ida_backend(), 'idalib_current', {})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def ida_save_session(path: str | None = None) -> dict:
+    """保存当前 IDA session 对应的数据库。"""
+    try:
+        arguments = {}
+        if path:
+            arguments['path'] = path
+        return await ida_mod.call_tool(_require_ida_backend(), 'idalib_save', arguments, timeout=600)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def list_native_libraries(from_baseline: bool = False) -> dict:
+    """列出当前 APK 工作区里的 native so。优先从 decode 目录读取；未 decode 时回退到原 APK zip。"""
+    try:
+        return _workspace().list_native_libraries(from_baseline=from_baseline)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def open_native_library(relative_path: str, run_auto_analysis: bool = True, from_baseline: bool = False) -> dict:
+    """把指定 so 送给 IDA sidecar 打开分析。"""
+    try:
+        materialized = _workspace().materialize_native_library(relative_path, from_baseline=from_baseline)
+        result = await ida_mod.call_tool(
+            _require_ida_backend(),
+            'idalib_open',
+            {'input_path': str(materialized), 'run_auto_analysis': run_auto_analysis},
+            timeout=1800,
+        )
+        result['library'] = {
+            'relative_path': relative_path,
+            'materialized_path': str(materialized),
+            'from_baseline': from_baseline,
+            'ida_session_root': str(_workspace().get_ida_session_root(relative_path)),
+        }
+        return result
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def ida_list_functions(filter: str = '*', offset: int = 0, count: int = 50) -> dict:
+    try:
+        return await ida_mod.call_tool(
+            _require_ida_backend(),
+            'list_funcs',
+            {'queries': {'filter': filter, 'offset': offset, 'count': count}},
+            timeout=300,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def ida_decompile_function(addr: str, include_addresses: bool = False) -> dict:
+    try:
+        return await ida_mod.call_tool(
+            _require_ida_backend(),
+            'decompile',
+            {'addr': addr, 'include_addresses': include_addresses},
+            timeout=600,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def ida_disasm_function(addr: str) -> dict:
+    try:
+        return await ida_mod.call_tool(_require_ida_backend(), 'disasm', {'addr': addr}, timeout=600)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def ida_xrefs_to(addrs: list[str] | str, limit: int = 100) -> dict:
+    try:
+        return await ida_mod.call_tool(_require_ida_backend(), 'xrefs_to', {'addrs': addrs, 'limit': limit}, timeout=300)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def ida_rename_function(addr: str, new_name: str, allow_overwrite: bool = False) -> dict:
+    try:
+        return await ida_mod.call_tool(
+            _require_ida_backend(),
+            'rename',
+            {'batch': {'func': {'addr': addr, 'name': new_name}, 'allow_overwrite': allow_overwrite}},
+            timeout=300,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def ida_append_comment(addr: str, comment: str, scope: str = 'auto', dedupe: bool = True) -> dict:
+    try:
+        return await ida_mod.call_tool(
+            _require_ida_backend(),
+            'append_comments',
+            {'items': {'addr': addr, 'comment': comment, 'scope': scope, 'dedupe': dedupe}},
+            timeout=300,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 
 
 @mcp.tool()
