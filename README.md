@@ -19,6 +19,10 @@
 - **Docker 内自动安装 Ghidra**
 - **Python 环境隔离**：统一走 `uv`
 
+## 文档
+
+- `docs/single-apk-agent-workflow.md`：给大模型 / Agent 的单 APK 标准分析工作流与提示词模板
+
 ## 工作区结构
 
 ```text
