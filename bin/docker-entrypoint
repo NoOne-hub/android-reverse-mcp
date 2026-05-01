@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+is_true() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ "$#" -gt 0 ] && [ "${1#-}" = "$1" ]; then
+  exec "$@"
+fi
+
+HOST_VALUE="${HOST:-0.0.0.0}"
+PORT_VALUE="${PORT:-8651}"
+WORKSPACE_VALUE="${WORKSPACE_DIR:-${APK_MCP_WORKSPACE:-/workspace}}"
+
+set -- android_reverse_mcp --http --host "$HOST_VALUE" --port "$PORT_VALUE" --workspace "$WORKSPACE_VALUE" "$@"
+
+if [ -n "${APK:-}" ]; then
+  set -- "$@" --apk "$APK"
+fi
+
+if [ -n "${THREADS:-}" ]; then
+  set -- "$@" --threads "$THREADS"
+fi
+
+if [ -n "${BACKEND_URL:-}" ]; then
+  set -- "$@" --backend-url "$BACKEND_URL"
+fi
+
+if [ -n "${IDA_BACKEND_URL:-}" ]; then
+  set -- "$@" --ida-backend-url "$IDA_BACKEND_URL"
+fi
+
+if [ -n "${BACKEND_JAR:-}" ]; then
+  set -- "$@" --backend-jar "$BACKEND_JAR"
+fi
+
+if [ -n "${JADX_JAR:-}" ]; then
+  set -- "$@" --jadx-jar "$JADX_JAR"
+fi
+
+DECODE_VALUE="${DECODE_ON_START:-}"
+if [ -z "$DECODE_VALUE" ] && [ -n "${APK:-}" ]; then
+  DECODE_VALUE=1
+fi
+if is_true "$DECODE_VALUE"; then
+  set -- "$@" --decode-on-start
+fi
+
+exec "$@"

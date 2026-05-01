@@ -30,6 +30,38 @@
   state/project-state.json
 ```
 
+## Docker
+
+构建：
+
+```bash
+docker build -t android-reverse-mcp .
+```
+
+一键启动单 APK：
+
+```bash
+docker run --rm -it   -p 8651:8651   -v /path/to/workspace:/workspace   -v /path/to/app.apk:/input/app.apk:ro   -e APK=/input/app.apk   -e DECODE_ON_START=1   android-reverse-mcp
+```
+
+如果要覆盖端口：
+
+```bash
+docker run --rm -it   -p 9000:9000   -v /path/to/workspace:/workspace   -v /path/to/app.apk:/input/app.apk:ro   -e APK=/input/app.apk   -e PORT=9000   -e DECODE_ON_START=1   android-reverse-mcp
+```
+
+MCP 地址：
+
+```text
+http://127.0.0.1:8651/mcp
+```
+
+也可以继续手工传完整参数：
+
+```bash
+docker run --rm -it android-reverse-mcp --help
+```
+
 ## 主要 MCP Tools
 
 ### Workspace
@@ -89,45 +121,17 @@
 - `diff_workspace_changes`
 - `diff_decoded_file`
 
-## 本地运行
+## GitHub 仓库元数据
 
-建议用 `uv`：
+仓库内已提供：
 
-```bash
-uv venv .venv
-source .venv/bin/activate
-uv pip install -e .
-```
+- `.github/repository-metadata.json`
+- `scripts/apply_github_metadata.sh`
 
-启动：
+有 `GITHUB_TOKEN` 时可直接应用：
 
 ```bash
-android_reverse_mcp --http --host 127.0.0.1 --port 8651 --apk ./samples/TestActivity.apk
-```
-
-## Docker
-
-构建：
-
-```bash
-docker build -t android-reverse-mcp .
-```
-
-一键启动单 APK：
-
-```bash
-docker run --rm -it \
-  -p 8651:8651 \
-  -v /path/to/workspace:/workspace \
-  -v /path/to/app.apk:/input/app.apk:ro \
-  android-reverse-mcp \
-  --http --host 0.0.0.0 --port 8651 --apk /input/app.apk --decode-on-start
-```
-
-MCP 地址：
-
-```text
-http://127.0.0.1:8651/mcp
+GITHUB_TOKEN=xxx ./scripts/apply_github_metadata.sh
 ```
 
 ## 路线图

@@ -25,7 +25,7 @@ COPY pyproject.toml README.md /app/
 COPY src /app/src
 COPY bin /app/bin
 COPY third_party /app/third_party
-RUN chmod +x /app/bin/apktool && pip install --no-cache-dir .
+RUN chmod +x /app/bin/apktool /app/bin/docker-entrypoint && pip install --no-cache-dir .
 
 RUN mkdir -p /opt/headless-jadx/backend /input /workspace
 COPY --from=java-builder /build/target/headless-jadx-backend-0.1.0.jar /opt/headless-jadx/backend/
@@ -33,5 +33,5 @@ COPY --from=java-builder /build/lib/jadx-1.5.5-all.jar /opt/headless-jadx/backen
 
 EXPOSE 8651
 VOLUME ["/workspace", "/input"]
-ENTRYPOINT ["android_reverse_mcp"]
-CMD ["--http", "--host", "0.0.0.0", "--port", "8651"]
+ENTRYPOINT ["/app/bin/docker-entrypoint"]
+CMD []

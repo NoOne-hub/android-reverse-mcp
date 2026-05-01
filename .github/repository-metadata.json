@@ -1,0 +1,15 @@
+{
+  "description": "Unified headless MCP gateway for Android reverse engineering: JADX semantic analysis, APKTool patching, signing, diff, and future IDA sidecar support.",
+  "homepage": "https://github.com/NoOne-hub/android-reverse-mcp#readme",
+  "topics": [
+    "android",
+    "reverse-engineering",
+    "mcp",
+    "jadx",
+    "apktool",
+    "docker",
+    "smali",
+    "apk-analysis",
+    "ida-pro"
+  ]
+}
