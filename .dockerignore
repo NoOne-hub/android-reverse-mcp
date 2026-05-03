@@ -4,6 +4,7 @@ __pycache__
 *.pyc
 workspace
 samples
-java-backend/target
+java-backend/target/*
+!java-backend/target/headless-jadx-backend-0.1.0.jar
 src/*.egg-info
 src/headless_jadx_mcp.egg-info

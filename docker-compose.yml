@@ -5,16 +5,74 @@ services:
       dockerfile: Dockerfile
     image: android-reverse-mcp:latest
     container_name: android-reverse-mcp
+    profiles: ["full-ghidra"]
+    depends_on:
+      - ghidra-sidecar
     ports:
       - "${PORT:-8651}:${PORT:-8651}"
     environment:
       APK: /input/app.apk
       DECODE_ON_START: "${DECODE_ON_START:-1}"
       PORT: "${PORT:-8651}"
-      GHIDRA_AUTO_START: "${GHIDRA_AUTO_START:-1}"
-      GHIDRA_HEADLESS_MCP_FAKE_BACKEND: "${GHIDRA_HEADLESS_MCP_FAKE_BACKEND:-0}"
-      GHIDRA_BACKEND_HOST: "${GHIDRA_BACKEND_HOST:-127.0.0.1}"
-      GHIDRA_BACKEND_PORT: "${GHIDRA_BACKEND_PORT:-8765}"
+      NATIVE_BACKEND: ghidra
+      NATIVE_BACKEND_PORT: "${GHIDRA_PORT:-8765}"
+      NATIVE_BACKEND_URL: "tcp://ghidra-sidecar:${GHIDRA_PORT:-8765}"
     volumes:
-      - ${WORKSPACE_DIR}:/workspace
-      - ${APK_PATH}:/input/app.apk:ro
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
+      - ${APK_PATH:-./samples/TestActivity.apk}:/input/app.apk:ro
+
+  android-reverse-mcp-ida:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: android-reverse-mcp:latest
+    container_name: android-reverse-mcp-ida
+    profiles: ["full-ida"]
+    depends_on:
+      - ida-sidecar
+    ports:
+      - "${PORT:-8651}:${PORT:-8651}"
+    environment:
+      APK: /input/app.apk
+      DECODE_ON_START: "${DECODE_ON_START:-1}"
+      PORT: "${PORT:-8651}"
+      NATIVE_BACKEND: ida
+      NATIVE_BACKEND_PORT: "${IDA_PORT:-8745}"
+      NATIVE_BACKEND_URL: "http://ida-sidecar:${IDA_PORT:-8745}/mcp"
+    volumes:
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
+      - ${APK_PATH:-./samples/TestActivity.apk}:/input/app.apk:ro
+
+  ghidra-sidecar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: android-reverse-mcp:latest
+    container_name: ghidra-sidecar
+    profiles: ["full-ghidra", "ghidra-only"]
+    entrypoint: ["/usr/local/bin/ghidra-sidecar-entrypoint"]
+    ports:
+      - "${GHIDRA_PORT:-8765}:${GHIDRA_PORT:-8765}"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "${GHIDRA_PORT:-8765}"
+      GHIDRA_HEADLESS_MCP_FAKE_BACKEND: "${GHIDRA_HEADLESS_MCP_FAKE_BACKEND:-0}"
+    volumes:
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
+
+  ida-sidecar:
+    build:
+      context: .
+      dockerfile: docker/ida-sidecar.Dockerfile
+    image: android-reverse-mcp-ida-sidecar:latest
+    container_name: ida-sidecar
+    profiles: ["full-ida", "ida-only"]
+    ports:
+      - "${IDA_PORT:-8745}:${IDA_PORT:-8745}"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "${IDA_PORT:-8745}"
+      IDA_INPUT_PATH: "${IDA_INPUT_PATH:-}"
+    volumes:
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
+      - ${WORKSPACE_DIR:-./workspace}:/work

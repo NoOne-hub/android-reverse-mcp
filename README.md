@@ -8,15 +8,15 @@
 - `apktool`：解包、Smali/资源改写、重打包
 - `sign-tools`：zipalign、签名、校验
 - `diff`：工作区差异对比
-- `ghidra-headless-mcp`：`.so` / native 静态分析
+- 可选 native backend sidecar：Ghidra 或 IDA 的 `.so` / native 静态分析
 
 ## 特点
 
 - **单入口 MCP**
-- **单容器**：不再依赖 IDA sidecar
+- **共享 `native_*` 工具面**：native 分析入口对后端无感
+- **sidecar 可选**：可接 Ghidra 或 IDA native backend
 - **工作区持久化**
 - **固定 apktool 版本**
-- **Docker 内自动安装 Ghidra**
 - **Python 环境隔离**：统一走 `uv`
 
 ## 文档
@@ -34,11 +34,25 @@
   outputs/
   keystore/
   native/
-  ghidra/
+  native-projects/
   state/project-state.json
 ```
 
 ## 快速开始
+
+### 0. 准备本地构建产物
+
+Docker 构建不会在镜像内下载大体积 Ghidra 资源，构建前需要先把以下文件放到仓库本地：
+
+- `third_party/ghidra_12.0.4_PUBLIC_20260303.zip`
+- `third_party/ghidra-headless-mcp-b9c491a6383dbc68c581e7fed16341ac47e7faba.zip`
+- `java-backend/target/headless-jadx-backend-0.1.0.jar`
+
+如果本地还没有 Java backend JAR，可先执行：
+
+```bash
+mvn -f java-backend/pom.xml package
+```
 
 ### 1. 准备 `.env`
 
@@ -54,16 +68,34 @@ WORKSPACE_DIR=/absolute/path/to/android-reverse-workspace
 PORT=8651
 DECODE_ON_START=1
 
-GHIDRA_AUTO_START=1
-GHIDRA_HEADLESS_MCP_FAKE_BACKEND=0
-GHIDRA_BACKEND_HOST=127.0.0.1
-GHIDRA_BACKEND_PORT=8765
+NATIVE_BACKEND=ghidra
+NATIVE_BACKEND_URL=tcp://ghidra-sidecar:8765
+GHIDRA_BACKEND=tcp://ghidra-sidecar:8765
+
+# IDA sidecar still uses HTTP MCP:
+# NATIVE_BACKEND=ida
+# NATIVE_BACKEND_URL=http://ida-sidecar:8745/mcp
 ```
 
 ### 2. 一键启动
 
+完整 Ghidra 栈：
+
 ```bash
-docker compose up -d --build
+docker compose --profile full-ghidra up -d --build
+```
+
+完整 IDA 栈：
+
+```bash
+docker compose --profile full-ida up -d --build
+```
+
+仅 sidecar：
+
+```bash
+docker compose --profile ghidra-only up -d ghidra-sidecar
+docker compose --profile ida-only up -d ida-sidecar
 ```
 
 主 MCP：
@@ -83,12 +115,13 @@ http://127.0.0.1:8651/mcp
 可选参数：
 
 ```bash
-./scripts/run-docker.sh /absolute/path/to/app.apk /absolute/path/to/workspace 8651
+./scripts/run-docker.sh /absolute/path/to/app.apk /absolute/path/to/workspace 8651 ghidra
+./scripts/run-docker.sh /absolute/path/to/app.apk /absolute/path/to/workspace 8651 ida
 ```
 
 脚本行为：
 
-- 本地没有镜像时自动 `docker build`
+- 自动选择 `full-ghidra` 或 `full-ida` profile
 - 自动挂载 APK 到 `/input/app.apk`
 - 自动设置 `-e APK=/input/app.apk`
 - 自动创建持久化工作区
@@ -105,51 +138,45 @@ docker run --rm -it \
   android-reverse-mcp
 ```
 
-## Ghidra backend 说明
+## Native backend 说明
 
-本项目已改为使用 [`mrphrazer/ghidra-headless-mcp`](https://github.com/mrphrazer/ghidra-headless-mcp)。
+主 MCP 通过共享 `native_*` 工具面对接选定的 native backend。
 
-容器启动时会：
+当前架构目标：
 
-1. 自动启动 `jadx` backend
-2. 自动启动 `ghidra-headless-mcp` TCP backend
-3. 主 MCP 自动桥接到 Ghidra backend
+1. 主 MCP 始终暴露统一的 `native_*` 工具
+2. Ghidra 和 IDA 以 sidecar 形式独立运行
+3. 通过 `NATIVE_BACKEND` / `NATIVE_BACKEND_URL` 在启动时选择后端
 
 也就是说：
 
-- 不需要手工开 GUI
-- 不需要手工启动第二个 MCP
-- `.so` 分析直接走统一入口
+- `.so` 分析始终走统一入口
+- backend-specific 能力未来放在 `native_ghidra_*` 或 `native_ida_*`
+- main MCP 与 native sidecar 可分离启动
 
-### Docker 内安装内容
+### 当前 native sidecar 形态
 
-当前镜像会自动下载并安装：
+- **Ghidra**：`ghidra-headless-mcp` TCP sidecar
+- **IDA**：`root1/idapro:9.3-cli-mcp`，以 `idalib-mcp` 方式运行
 
-- **Ghidra 12.0.4**  
-  来源：官方 GitHub release  
-  https://github.com/NationalSecurityAgency/ghidra/releases
-- **ghidra-headless-mcp**  
-  来源：  
-  https://github.com/mrphrazer/ghidra-headless-mcp
+### Native 共享工具
 
-## 可用 Native / Ghidra Tools
-
-- `ghidra_list_remote_tools`
-- `ghidra_health`
-- `ghidra_list_sessions`
-- `ghidra_program_summary`
-- `ghidra_save_program`
+- `native_health`
+- `native_list_remote_tools`
+- `native_list_sessions`
 - `list_native_libraries`
 - `open_native_library`
-- `ghidra_list_functions`
-- `ghidra_decompile_function`
-- `ghidra_function_report`
-- `ghidra_xrefs_to`
-- `ghidra_xrefs_from`
-- `ghidra_rename_function`
-- `ghidra_list_variables`
-- `ghidra_rename_variable`
-- `ghidra_set_comment`
+- `native_program_summary`
+- `native_save_program`
+- `native_list_functions`
+- `native_decompile_function`
+- `native_function_report`
+- `native_xrefs_to`
+- `native_xrefs_from`
+- `native_rename_function`
+- `native_list_variables`
+- `native_rename_variable`
+- `native_set_comment`
 
 ## 推荐工作流
 
@@ -167,12 +194,12 @@ docker run --rm -it \
 1. `list_native_libraries`
 2. `open_native_library`
 3. 从返回值里拿 `session_id`
-4. `ghidra_list_functions`
-5. `ghidra_decompile_function`
-6. `ghidra_xrefs_to`
-7. `ghidra_rename_function`
-8. `ghidra_rename_variable`
-9. `ghidra_save_program`
+4. `native_list_functions`
+5. `native_decompile_function`
+6. `native_xrefs_to`
+7. `native_rename_function`
+8. `native_rename_variable`
+9. `native_save_program`
 
 ## 主要 MCP Tools
 

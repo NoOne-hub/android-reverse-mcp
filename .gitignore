@@ -6,6 +6,11 @@ __pycache__/
 *.egg-info/
 workspace/
 java-backend/target/
+java-backend/D:\\program\\maven\\repository/
+third_party/ghidra-headless-mcp-*.zip
+third_party/ghidra_*_PUBLIC_*.zip
+.claude/
+docs/superpowers/
 .DS_Store
 *.log
 .env

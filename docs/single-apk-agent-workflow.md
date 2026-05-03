@@ -25,7 +25,7 @@
 4. **native 分析必须先打开 session**
    - 先 `list_native_libraries`
    - 再 `open_native_library`
-   - 后续所有 `ghidra_*` 都带 `session_id`
+   - 后续所有 `native_*` 都带 `session_id`
 
 ---
 
@@ -41,7 +41,7 @@
 目标：
 
 - 确认当前 APK 已加载
-- 确认 `ghidra_enabled=true`
+- 确认 `native_enabled=true`
 - 记录当前项目 ID
 
 ---
@@ -190,9 +190,9 @@
 
 优先调用：
 
-- `ghidra_list_functions`
-- `ghidra_decompile_function`
-- `ghidra_function_report`
+- `native_list_functions`
+- `native_decompile_function`
+- `native_function_report`
 
 建议优先关注：
 
@@ -213,12 +213,12 @@
 
 继续调用：
 
-- `ghidra_xrefs_to`
-- `ghidra_xrefs_from`
-- `ghidra_list_variables`
-- `ghidra_rename_function`
-- `ghidra_rename_variable`
-- `ghidra_set_comment`
+- `native_xrefs_to`
+- `native_xrefs_from`
+- `native_list_variables`
+- `native_rename_function`
+- `native_rename_variable`
+- `native_set_comment`
 
 目标：
 
@@ -228,7 +228,7 @@
 
 完成后可调用：
 
-- `ghidra_save_program`
+- `native_save_program`
 
 保存分析状态。
 
@@ -306,7 +306,7 @@
 1. 只使用当前 MCP 提供的工具，不要假设有 GUI。
 2. 先分析 Manifest、主 Activity、包结构，再分析关键类和方法。
 3. 主动搜索 JNI / `System.loadLibrary` / `native` 方法。
-4. 如果 APK 内存在 `.so`，先 `list_native_libraries`，再 `open_native_library`，之后使用 `ghidra_*` 工具分析。
+4. 如果 APK 内存在 `.so`，先 `list_native_libraries`，再 `open_native_library`，之后使用 `native_*` 工具分析。
 5. 发现关键方法、关键函数后，必要时使用 rename 和 comment 工具整理语义。
 6. 每一轮输出：
    - 当前发现
@@ -341,8 +341,8 @@
 3. `search_method_by_name`（`loadLibrary` / `native`）
 4. `list_native_libraries`
 5. `open_native_library`
-6. `ghidra_list_functions`
-7. `ghidra_decompile_function`
-8. `ghidra_xrefs_to`
-9. `ghidra_save_program`
+6. `native_list_functions`
+7. `native_decompile_function`
+8. `native_xrefs_to`
+9. `native_save_program`
 

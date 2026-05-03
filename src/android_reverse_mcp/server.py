@@ -13,8 +13,9 @@ from fastmcp import FastMCP
 from . import backend_client
 from .modules import apktool as apktool_mod
 from .modules import diff_tool as diff_mod
-from .modules import ghidra_bridge as ghidra_mod
 from .modules import sign_tools as sign_mod
+from .native_backends.base import NativeBackend
+from .native_backends.bridge import create_native_backend, parse_native_backend_config
 from .workspace import WorkspaceManager
 
 logger = logging.getLogger("android-reverse-mcp")
@@ -27,7 +28,7 @@ logger.propagate = False
 
 mcp = FastMCP("Android Reverse MCP")
 _workspace_manager: WorkspaceManager | None = None
-_ghidra_backend: str | None = None
+_native_backend: NativeBackend | None = None
 
 
 def _call(endpoint: str, **params):
@@ -48,6 +49,33 @@ def _workspace() -> WorkspaceManager:
 
 def _utcnow() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _require_native_backend() -> NativeBackend:
+    if _native_backend is None:
+        raise RuntimeError("native backend 未配置")
+    return _native_backend
+
+
+def _init_native_backend(
+    native_backend_name: str | None,
+    native_backend_url: str | None,
+    ghidra_backend_url: str | None,
+) -> NativeBackend | None:
+    if native_backend_name or native_backend_url:
+        if not native_backend_name or not native_backend_url:
+            raise RuntimeError("native backend 配置不完整")
+        return create_native_backend(native_backend_name, native_backend_url)
+
+    if ghidra_backend_url:
+        return create_native_backend("ghidra", ghidra_backend_url)
+
+    try:
+        config = parse_native_backend_config()
+    except RuntimeError:
+        return None
+
+    return create_native_backend(config.name, config.url)
 
 
 def _workspace_project_or_none() -> dict | None:
@@ -162,14 +190,24 @@ def _maybe_restore_saved_state() -> dict | None:
 @mcp.tool()
 async def health() -> dict:
     """返回当前 headless MCP 与后端状态。"""
+    backend = _native_backend
     return {
         "ok": True,
         "jadx_backend": backend_client.health_ping(),
         "workspace_root": str(_workspace().root),
         "workspace_projects": len(_workspace().list_projects()),
-        "ghidra_backend": _ghidra_backend,
-        "ghidra_enabled": bool(_ghidra_backend),
+        "native_backend": None if backend is None else backend.backend_name(),
+        "native_enabled": backend is not None,
     }
+
+
+@mcp.tool()
+async def native_health() -> dict:
+    """返回当前 native backend 的健康状态。"""
+    try:
+        return await _require_native_backend().health()
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
@@ -656,57 +694,6 @@ async def diff_decoded_file(relative_path: str, context: int = 3) -> dict:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def _require_ghidra_backend() -> str:
-    if not _ghidra_backend:
-        raise RuntimeError('Ghidra backend 未配置，请设置 --ghidra-backend 或 GHIDRA_BACKEND')
-    return _ghidra_backend
-
-
-@mcp.tool()
-async def ghidra_list_remote_tools() -> dict:
-    """列出远端 ghidra-headless-mcp 暴露的 tools，用于排查联通情况。"""
-    try:
-        return await ghidra_mod.list_tools(_require_ghidra_backend())
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-
-
-@mcp.tool()
-async def ghidra_health() -> dict:
-    """探测 Ghidra backend 当前状态；即使尚未打开 so，也可用于检查联通。"""
-    try:
-        result = await ghidra_mod.call_tool(_require_ghidra_backend(), 'health.ping', {})
-        result['ghidra_backend'] = _ghidra_backend
-        return result
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-
-
-@mcp.tool()
-async def ghidra_list_sessions() -> dict:
-    try:
-        return await ghidra_mod.call_tool(_require_ghidra_backend(), 'program.list_open', {})
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-
-
-@mcp.tool()
-async def ghidra_program_summary(session_id: str) -> dict:
-    try:
-        return await ghidra_mod.call_tool(_require_ghidra_backend(), 'program.summary', {'session_id': session_id})
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-
-
-@mcp.tool()
-async def ghidra_save_program(session_id: str) -> dict:
-    """保存当前 Ghidra program 到项目数据库。"""
-    try:
-        return await ghidra_mod.call_tool(_require_ghidra_backend(), 'program.save', {'session_id': session_id}, timeout=600)
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-
-
 @mcp.tool()
 async def list_native_libraries(from_baseline: bool = False) -> dict:
     """列出当前 APK 工作区里的 native so。优先从 decode 目录读取；未 decode 时回退到原 APK zip。"""
@@ -717,145 +704,159 @@ async def list_native_libraries(from_baseline: bool = False) -> dict:
 
 
 @mcp.tool()
+async def native_list_remote_tools() -> dict:
+    try:
+        return await _require_native_backend().list_remote_tools()
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def native_list_sessions() -> dict:
+    try:
+        return await _require_native_backend().list_sessions()
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
 async def open_native_library(relative_path: str, run_auto_analysis: bool = True, from_baseline: bool = False) -> dict:
-    """把指定 so 送给 Ghidra backend 打开分析。"""
+    """把指定 so 送给当前 native backend 打开分析。"""
     try:
         materialized = _workspace().materialize_native_library(relative_path, from_baseline=from_baseline)
-        session_root = _workspace().get_ghidra_session_root(relative_path)
-        result = await ghidra_mod.call_tool(
-            _require_ghidra_backend(),
-            'program.open',
-            {
-                'path': str(materialized),
-                'read_only': False,
-                'update_analysis': run_auto_analysis,
-                'project_location': str(session_root),
-                'project_name': 'ghidra',
-                'program_name': Path(relative_path).name,
-            },
-            timeout=1800,
+        project_root = _workspace().get_native_analysis_dir(relative_path)
+        result = await _require_native_backend().open_program(
+            path=str(materialized),
+            read_only=False,
+            update_analysis=run_auto_analysis,
+            project_location=str(project_root),
+            project_name="native",
+            program_name=Path(relative_path).name,
         )
         result['library'] = {
             'relative_path': relative_path,
             'materialized_path': str(materialized),
             'from_baseline': from_baseline,
-            'ghidra_project_root': str(session_root),
+            'native_project_root': str(project_root),
         }
-        payload = result.get('payload') or {}
-        if isinstance(payload, dict):
-            if 'session_id' in payload:
-                result['session_id'] = payload['session_id']
-            if 'project_location' in payload:
-                result['project_location'] = payload['project_location']
         return result
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
-async def ghidra_list_functions(session_id: str, query: str | None = None, offset: int = 0, limit: int = 50) -> dict:
+async def native_program_summary(session_id: str) -> dict:
     try:
-        arguments = {'session_id': session_id, 'offset': offset, 'limit': limit}
-        if query:
-            arguments['query'] = query
-        return await ghidra_mod.call_tool(_require_ghidra_backend(), 'function.list', arguments, timeout=300)
+        return await _require_native_backend().program_summary(session_id=session_id)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
-async def ghidra_decompile_function(session_id: str, function_start: str) -> dict:
+async def native_save_program(session_id: str) -> dict:
     try:
-        return await ghidra_mod.call_tool(
-            _require_ghidra_backend(),
-            'decomp.function',
-            {'session_id': session_id, 'function_start': function_start},
-            timeout=600,
+        return await _require_native_backend().save_program(session_id=session_id)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def native_list_functions(session_id: str, query: str | None = None, offset: int = 0, limit: int = 50) -> dict:
+    try:
+        return await _require_native_backend().list_functions(
+            session_id=session_id,
+            query=query,
+            offset=offset,
+            limit=limit,
         )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
-async def ghidra_function_report(session_id: str, function_start: str) -> dict:
+async def native_decompile_function(session_id: str, function_start: str) -> dict:
     try:
-        return await ghidra_mod.call_tool(
-            _require_ghidra_backend(),
-            'function.report',
-            {'session_id': session_id, 'function_start': function_start},
-            timeout=600,
+        return await _require_native_backend().decompile_function(
+            session_id=session_id,
+            function_start=function_start,
         )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
-async def ghidra_xrefs_to(session_id: str, address: str, limit: int = 100) -> dict:
+async def native_function_report(session_id: str, function_start: str) -> dict:
     try:
-        return await ghidra_mod.call_tool(
-            _require_ghidra_backend(),
-            'reference.to',
-            {'session_id': session_id, 'address': address, 'limit': limit},
-            timeout=300,
+        return await _require_native_backend().function_report(
+            session_id=session_id,
+            function_start=function_start,
         )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
-async def ghidra_xrefs_from(session_id: str, address: str, limit: int = 100) -> dict:
+async def native_xrefs_to(session_id: str, address: str, limit: int = 100) -> dict:
     try:
-        return await ghidra_mod.call_tool(
-            _require_ghidra_backend(),
-            'reference.from',
-            {'session_id': session_id, 'address': address, 'limit': limit},
-            timeout=300,
+        return await _require_native_backend().xrefs_to(
+            session_id=session_id,
+            address=address,
+            limit=limit,
         )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
-async def ghidra_rename_function(session_id: str, function_start: str, new_name: str) -> dict:
+async def native_xrefs_from(session_id: str, address: str, limit: int = 100) -> dict:
     try:
-        return await ghidra_mod.call_tool(
-            _require_ghidra_backend(),
-            'function.rename',
-            {'session_id': session_id, 'function_start': function_start, 'name': new_name},
-            timeout=300,
+        return await _require_native_backend().xrefs_from(
+            session_id=session_id,
+            address=address,
+            limit=limit,
         )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
-async def ghidra_list_variables(session_id: str, function_start: str) -> dict:
+async def native_rename_function(session_id: str, function_start: str, new_name: str) -> dict:
     try:
-        return await ghidra_mod.call_tool(
-            _require_ghidra_backend(),
-            'function.variables',
-            {'session_id': session_id, 'function_start': function_start},
-            timeout=300,
+        return await _require_native_backend().rename_function(
+            session_id=session_id,
+            function_start=function_start,
+            new_name=new_name,
         )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
-async def ghidra_rename_variable(session_id: str, function_start: str, old_name: str, new_name: str) -> dict:
+async def native_list_variables(session_id: str, function_start: str) -> dict:
     try:
-        return await ghidra_mod.call_tool(
-            _require_ghidra_backend(),
-            'variable.rename',
-            {'session_id': session_id, 'function_start': function_start, 'name': old_name, 'new_name': new_name},
-            timeout=300,
+        return await _require_native_backend().list_variables(
+            session_id=session_id,
+            function_start=function_start,
         )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 @mcp.tool()
-async def ghidra_set_comment(
+async def native_rename_variable(session_id: str, function_start: str, old_name: str, new_name: str) -> dict:
+    try:
+        return await _require_native_backend().rename_variable(
+            session_id=session_id,
+            function_start=function_start,
+            old_name=old_name,
+            new_name=new_name,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def native_set_comment(
     session_id: str,
     address: str,
     comment: str,
@@ -864,22 +865,15 @@ async def ghidra_set_comment(
     comment_type: str = 'eol',
 ) -> dict:
     try:
-        return await ghidra_mod.call_tool(
-            _require_ghidra_backend(),
-            'comment.set',
-            {
-                'session_id': session_id,
-                'address': address,
-                'scope': scope,
-                'comment_type': comment_type,
-                'comment': comment,
-            },
-            timeout=300,
+        return await _require_native_backend().set_comment(
+            session_id=session_id,
+            address=address,
+            comment=comment,
+            scope=scope,
+            comment_type=comment_type,
         )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-
-
 
 
 @mcp.tool()
@@ -909,7 +903,8 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=int(os.environ.get("JADX_THREADS", str(max(2, os.cpu_count() or 2)))))
     parser.add_argument("--workspace", default=os.environ.get("APK_MCP_WORKSPACE", str(Path.cwd() / "workspace")))
     parser.add_argument("--decode-on-start", action="store_true", default=os.environ.get("DECODE_ON_START", "").lower() in {"1", "true", "yes"})
-    parser.add_argument("--ghidra-backend", default=os.environ.get("GHIDRA_BACKEND"))
+    parser.add_argument("--native-backend", default=os.environ.get("NATIVE_BACKEND"))
+    parser.add_argument("--native-backend-url", default=os.environ.get("NATIVE_BACKEND_URL"))
     parser.add_argument(
         "--backend-jar",
         default=os.environ.get("JADX_BACKEND_JAR", str(Path(__file__).resolve().parents[2] / "java-backend" / "target" / "headless-jadx-backend-0.1.0.jar")),
@@ -919,9 +914,9 @@ def main() -> None:
         default=os.environ.get("JADX_ALL_JAR", str(Path(__file__).resolve().parents[2] / "java-backend" / "lib" / "jadx-1.5.5-all.jar")),
     )
     args = parser.parse_args()
-    global _workspace_manager, _ghidra_backend
+    global _workspace_manager, _native_backend
     _workspace_manager = WorkspaceManager(args.workspace)
-    _ghidra_backend = args.ghidra_backend
+    _native_backend = _init_native_backend(args.native_backend, args.native_backend_url, os.environ.get("GHIDRA_BACKEND"))
     imported_workspace = None
     if args.apk:
         try:
@@ -950,7 +945,15 @@ def main() -> None:
         if restored is not None:
             logger.info("restored_state=%s", restored)
 
-    logger.info("mcp=%s:%s backend=%s workspace=%s project=%s", args.host, args.port, backend_client.get_backend_base(), args.workspace, imported_workspace["project_id"] if imported_workspace else None)
+    logger.info(
+        "mcp=%s:%s backend=%s workspace=%s project=%s native_backend=%s",
+        args.host,
+        args.port,
+        backend_client.get_backend_base(),
+        args.workspace,
+        imported_workspace["project_id"] if imported_workspace else None,
+        None if _native_backend is None else _native_backend.backend_name(),
+    )
     if args.http:
         mcp.run(transport="streamable-http", host=args.host, port=args.port)
     else:

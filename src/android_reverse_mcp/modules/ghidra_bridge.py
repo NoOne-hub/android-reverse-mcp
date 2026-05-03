@@ -100,6 +100,15 @@ def _normalize_tool_result(tool_name: str, response: dict[str, Any]) -> dict[str
         for item in content_items
         if isinstance(item, dict)
     ]
+    if result.get('isError'):
+        return {
+            'ok': False,
+            'tool': tool_name,
+            'error': '\n'.join(texts) or 'unknown error',
+            'payload': structured,
+            'content': texts,
+            'raw_result': result,
+        }
     return {
         'ok': True,
         'tool': tool_name,

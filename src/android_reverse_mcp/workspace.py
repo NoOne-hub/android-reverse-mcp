@@ -36,7 +36,7 @@ class ProjectPaths:
     state_dir: Path
     keystore_dir: Path
     native_dir: Path
-    ghidra_dir: Path
+    native_projects_dir: Path
     metadata_file: Path
 
 
@@ -62,7 +62,7 @@ class WorkspaceManager:
             paths.state_dir,
             paths.keystore_dir,
             paths.native_dir,
-            paths.ghidra_dir,
+            paths.native_projects_dir,
         ]:
             directory.mkdir(parents=True, exist_ok=True)
         if not paths.original_apk.exists() or _sha256_file(paths.original_apk) != sha256:
@@ -79,7 +79,7 @@ class WorkspaceManager:
             "current_dir": str(paths.current_dir),
             "outputs_dir": str(paths.outputs_dir),
             "native_dir": str(paths.native_dir),
-            "ghidra_dir": str(paths.ghidra_dir),
+            "native_projects_dir": str(paths.native_projects_dir),
         }
         self._write_json(paths.metadata_file, metadata)
         self.set_current_project(project_root.name)
@@ -156,7 +156,6 @@ class WorkspaceManager:
         paths = self.get_project_paths(project_id)
         base = paths.baseline_dir if from_baseline else paths.current_dir
         libraries: list[dict[str, Any]] = []
-        seen: set[str] = set()
 
         if base.exists():
             for path in sorted(base.rglob('*.so')):
@@ -164,14 +163,12 @@ class WorkspaceManager:
                 if not rel.startswith('lib/'):
                     continue
                 libraries.append(self._native_info(rel, source='decoded', full_path=path))
-                seen.add(rel)
 
         if not libraries:
             with zipfile.ZipFile(paths.original_apk) as zf:
                 for name in sorted(zf.namelist()):
                     if name.startswith('lib/') and name.endswith('.so'):
                         libraries.append(self._native_info(name, source='apk-zip', full_path=None))
-                        seen.add(name)
 
         return {
             'ok': True,
@@ -198,10 +195,10 @@ class WorkspaceManager:
                 shutil.copyfileobj(src, dst)
             return out_path
 
-    def get_ghidra_session_root(self, relative_path: str, project_id: str | None = None) -> Path:
+    def get_native_analysis_dir(self, relative_path: str, project_id: str | None = None) -> Path:
         paths = self.get_project_paths(project_id)
         parts = [p for p in Path(relative_path).with_suffix('').parts if p not in {'/', ''}]
-        root = paths.ghidra_dir
+        root = paths.native_projects_dir
         for part in parts:
             root = root / _safe_name(part)
         root.mkdir(parents=True, exist_ok=True)
@@ -231,7 +228,7 @@ class WorkspaceManager:
             state_dir=project_root / 'state',
             keystore_dir=project_root / 'keystore',
             native_dir=project_root / 'native',
-            ghidra_dir=project_root / 'ghidra',
+            native_projects_dir=project_root / 'native-projects',
             metadata_file=project_root / 'metadata.json',
         )
 

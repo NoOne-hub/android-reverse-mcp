@@ -29,34 +29,50 @@ fi
 HOST_VALUE="${HOST:-0.0.0.0}"
 PORT_VALUE="${PORT:-8651}"
 WORKSPACE_VALUE="${WORKSPACE_DIR:-${APK_MCP_WORKSPACE:-/workspace}}"
-GHIDRA_BACKEND_HOST_VALUE="${GHIDRA_BACKEND_HOST:-127.0.0.1}"
-GHIDRA_BACKEND_PORT_VALUE="${GHIDRA_BACKEND_PORT:-8765}"
+NATIVE_BACKEND_VALUE="${NATIVE_BACKEND:-}"
+NATIVE_BACKEND_URL_VALUE="${NATIVE_BACKEND_URL:-}"
 
-if [ -z "${GHIDRA_INSTALL_DIR:-}" ] && [ -d /opt/ghidra ]; then
-  GHIDRA_INSTALL_DIR="$(find /opt/ghidra -maxdepth 1 -mindepth 1 -type d -name 'ghidra_*_PUBLIC' | sort | head -n 1 || true)"
-  export GHIDRA_INSTALL_DIR
+if [ -z "$NATIVE_BACKEND_VALUE" ] && [ -n "${GHIDRA_BACKEND:-}" ]; then
+  NATIVE_BACKEND_VALUE="ghidra"
+  NATIVE_BACKEND_URL_VALUE="${GHIDRA_BACKEND}"
 fi
 
-if [ -z "${GHIDRA_BACKEND:-}" ] && is_true "${GHIDRA_AUTO_START:-1}"; then
-  GHIDRA_BACKEND="tcp://${GHIDRA_BACKEND_HOST_VALUE}:${GHIDRA_BACKEND_PORT_VALUE}"
-  export GHIDRA_BACKEND
-  GHIDRA_LOG="${GHIDRA_LOG:-/tmp/ghidra-headless-mcp.log}"
-  GHIDRA_ARGS=(--transport tcp --host "$GHIDRA_BACKEND_HOST_VALUE" --port "$GHIDRA_BACKEND_PORT_VALUE")
-  if is_true "${GHIDRA_HEADLESS_MCP_FAKE_BACKEND:-0}"; then
-    GHIDRA_ARGS+=(--fake-backend)
-  elif [ -n "${GHIDRA_INSTALL_DIR:-}" ]; then
-    GHIDRA_ARGS+=(--ghidra-install-dir "$GHIDRA_INSTALL_DIR")
-  else
-    echo "[entrypoint] GHIDRA_INSTALL_DIR 未配置，且未启用 fake backend" >&2
-    exit 1
-  fi
+if [ -n "$NATIVE_BACKEND_VALUE" ] && [ -z "$NATIVE_BACKEND_URL_VALUE" ]; then
+  case "$NATIVE_BACKEND_VALUE" in
+    ghidra)
+      NATIVE_BACKEND_URL_VALUE="tcp://ghidra-sidecar:${NATIVE_BACKEND_PORT:-8765}"
+      ;;
+    ida)
+      NATIVE_BACKEND_URL_VALUE="http://ida-sidecar:${NATIVE_BACKEND_PORT:-8745}/mcp"
+      ;;
+    *)
+      echo "[entrypoint] 不支持的 native backend: $NATIVE_BACKEND_VALUE" >&2
+      exit 1
+      ;;
+  esac
+fi
 
-  ghidra-headless-mcp "${GHIDRA_ARGS[@]}" >"$GHIDRA_LOG" 2>&1 &
-  GHIDRA_PID=$!
-  trap 'kill ${GHIDRA_PID} >/dev/null 2>&1 || true' EXIT
-  if ! wait_for_tcp "$GHIDRA_BACKEND_HOST_VALUE" "$GHIDRA_BACKEND_PORT_VALUE" 180; then
-    echo "[entrypoint] ghidra-headless-mcp 启动失败" >&2
-    tail -n 200 "$GHIDRA_LOG" >&2 || true
+if [ -n "$NATIVE_BACKEND_URL_VALUE" ]; then
+  case "$NATIVE_BACKEND_URL_VALUE" in
+    http://*|https://*)
+      BACKEND_ENDPOINT="${NATIVE_BACKEND_URL_VALUE#http://}"
+      BACKEND_ENDPOINT="${BACKEND_ENDPOINT#https://}"
+      BACKEND_ENDPOINT="${BACKEND_ENDPOINT%%/*}"
+      BACKEND_HOST="${BACKEND_ENDPOINT%:*}"
+      BACKEND_PORT="${BACKEND_ENDPOINT##*:}"
+      ;;
+    tcp://*)
+      BACKEND_ENDPOINT="${NATIVE_BACKEND_URL_VALUE#tcp://}"
+      BACKEND_HOST="${BACKEND_ENDPOINT%:*}"
+      BACKEND_PORT="${BACKEND_ENDPOINT##*:}"
+      ;;
+    *)
+      echo "[entrypoint] NATIVE_BACKEND_URL 仅支持 http(s)://host:port/path 或 tcp://host:port: $NATIVE_BACKEND_URL_VALUE" >&2
+      exit 1
+      ;;
+  esac
+  if ! wait_for_tcp "$BACKEND_HOST" "$BACKEND_PORT" 180; then
+    echo "[entrypoint] native backend 未就绪: $NATIVE_BACKEND_URL_VALUE" >&2
     exit 1
   fi
 fi
@@ -75,8 +91,12 @@ if [ -n "${BACKEND_URL:-}" ]; then
   set -- "$@" --backend-url "$BACKEND_URL"
 fi
 
-if [ -n "${GHIDRA_BACKEND:-}" ]; then
-  set -- "$@" --ghidra-backend "$GHIDRA_BACKEND"
+if [ -n "$NATIVE_BACKEND_VALUE" ]; then
+  set -- "$@" --native-backend "$NATIVE_BACKEND_VALUE"
+fi
+
+if [ -n "$NATIVE_BACKEND_URL_VALUE" ]; then
+  set -- "$@" --native-backend-url "$NATIVE_BACKEND_URL_VALUE"
 fi
 
 if [ -n "${BACKEND_JAR:-}" ]; then
