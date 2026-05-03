@@ -29,6 +29,15 @@ def test_parse_native_backend_config_falls_back_to_ghidra_env(monkeypatch):
     assert config == NativeBackendConfig(name="ghidra", url="tcp://ghidra-sidecar:8765")
 
 
+def test_parse_native_backend_config_rejects_partial_generic_config(monkeypatch):
+    monkeypatch.setenv("NATIVE_BACKEND", "ida")
+    monkeypatch.delenv("NATIVE_BACKEND_URL", raising=False)
+    monkeypatch.setenv("GHIDRA_BACKEND", "tcp://ghidra-sidecar:8765")
+
+    with pytest.raises(RuntimeError, match="native backend 配置不完整"):
+        parse_native_backend_config()
+
+
 def test_parse_native_backend_config_raises_when_unset(monkeypatch):
     monkeypatch.delenv("NATIVE_BACKEND", raising=False)
     monkeypatch.delenv("NATIVE_BACKEND_URL", raising=False)

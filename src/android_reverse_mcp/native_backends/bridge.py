@@ -26,7 +26,9 @@ DEFAULT_IDA_TOOL_MAPPING: dict[str, str] = {
 def parse_native_backend_config() -> NativeBackendConfig:
     name = os.environ.get("NATIVE_BACKEND")
     url = os.environ.get("NATIVE_BACKEND_URL")
-    if name and url:
+    if name or url:
+        if not name or not url:
+            raise RuntimeError("native backend 配置不完整")
         return NativeBackendConfig(name=name, url=url)
 
     ghidra_url = os.environ.get("GHIDRA_BACKEND")

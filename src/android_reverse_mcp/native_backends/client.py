@@ -133,7 +133,7 @@ async def list_tools(
             result = await session.list_tools(cursor=cursor)
             tools.extend(tool.model_dump(mode="json", exclude_none=True) for tool in result.tools)
             cursor = result.nextCursor
-            if not cursor or len(result.tools) < page_size:
+            if not cursor:
                 break
         return {"ok": True, "tools": tools, "total": len(tools)}
     except Exception as exc:  # noqa: BLE001

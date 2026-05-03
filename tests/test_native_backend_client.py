@@ -245,6 +245,35 @@ async def test_list_tools_reads_paginated_http_responses(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_list_tools_keeps_following_cursor_even_when_page_is_short(monkeypatch):
+    session = DummySession(
+        [
+            DummyListResult([{"name": "program.open"}], next_cursor="next-1"),
+            DummyListResult([], next_cursor="next-2"),
+            DummyListResult([{"name": "function.list"}], next_cursor=None),
+        ]
+    )
+
+    async def fake_open_session(endpoint, timeout):
+        return session, "transport"
+
+    async def fake_close_session(opened_session, transport_cm):
+        return None
+
+    monkeypatch.setattr(client, "_open_session", fake_open_session)
+    monkeypatch.setattr(client, "_close_session", fake_close_session)
+
+    result = await client.list_tools("backend-host:8765", page_size=64)
+
+    assert result == {
+        "ok": True,
+        "tools": [{"name": "program.open"}, {"name": "function.list"}],
+        "total": 2,
+    }
+    assert session.list_calls == [None, "next-1", "next-2"]
+
+
+@pytest.mark.anyio
 async def test_list_tools_wraps_http_errors(monkeypatch):
     async def fake_open_session(endpoint, timeout):
         raise RuntimeError("connect failed")
