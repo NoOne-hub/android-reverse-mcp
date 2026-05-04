@@ -6,8 +6,12 @@ if [ $# -lt 1 ]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
+
 APK_PATH="$(realpath "$1")"
-WORKSPACE_DIR="${2:-$(pwd)/.workspaces/$(basename "${APK_PATH%.*}")}"
+WORKSPACE_DIR="${2:-$REPO_ROOT/.workspaces/$(basename "${APK_PATH%.*}")}"
 PORT="${3:-8651}"
 NATIVE_BACKEND="${NATIVE_BACKEND:-${4:-ghidra}}"
 
@@ -40,18 +44,62 @@ case "$NATIVE_BACKEND" in
     NATIVE_BACKEND_URL="${NATIVE_BACKEND_URL:-http://ida-sidecar:${NATIVE_BACKEND_PORT}/mcp}"
     ;;
 esac
+
 DECODE_ON_START="${DECODE_ON_START:-1}"
 export APK_PATH WORKSPACE_DIR PORT NATIVE_BACKEND NATIVE_BACKEND_PORT NATIVE_BACKEND_URL DECODE_ON_START
+if [ -n "${HTTP_PROXY:-}" ]; then
+  export HTTP_PROXY
+fi
+if [ -n "${HTTPS_PROXY:-}" ]; then
+  export HTTPS_PROXY
+fi
+if [ -n "${ALL_PROXY:-}" ]; then
+  export ALL_PROXY
+fi
 if [ -n "${IDA_PORT:-}" ]; then
   export IDA_PORT
 fi
 
+require_file() {
+  local path="$1"
+  if [ ! -f "$path" ]; then
+    echo "[run-docker] 缺少文件: $path" >&2
+    return 1
+  fi
+}
+
+require_local_artifacts() {
+  require_file "$REPO_ROOT/java-backend/target/headless-jadx-backend-0.1.0.jar"
+  require_file "$REPO_ROOT/java-backend/lib/jadx-1.5.5-all.jar"
+  if [ "$NATIVE_BACKEND" = "ghidra" ]; then
+    require_file "$REPO_ROOT/third_party/ghidra_12.0.4_PUBLIC_20260303.zip"
+    require_file "$REPO_ROOT/third_party/ghidra-headless-mcp-b9c491a6383dbc68c581e7fed16341ac47e7faba.zip"
+  fi
+}
+
 mkdir -p "$WORKSPACE_DIR"
+require_local_artifacts
+
+cleanup() {
+  if docker compose -f "$COMPOSE_FILE" --profile "$PROFILE" ps --all --services 2>/dev/null | grep . >/dev/null 2>&1; then
+    docker compose -f "$COMPOSE_FILE" --profile "$PROFILE" down --remove-orphans
+  fi
+}
+
+trap cleanup EXIT INT TERM
 
 echo "[run-docker] APK=$APK_PATH"
 echo "[run-docker] WORKSPACE=$WORKSPACE_DIR"
 echo "[run-docker] MCP=http://127.0.0.1:${PORT}/mcp"
 echo "[run-docker] NATIVE_BACKEND=$NATIVE_BACKEND"
 echo "[run-docker] NATIVE_BACKEND_URL=$NATIVE_BACKEND_URL"
+if [ -n "${HTTP_PROXY:-}" ]; then
+  echo "[run-docker] HTTP_PROXY=$HTTP_PROXY"
+fi
+echo "[run-docker] 停止时将自动执行: docker compose down --remove-orphans"
 
-exec docker compose --profile "$PROFILE" up --build
+if [ "$NATIVE_BACKEND" = "ida" ]; then
+  docker compose -f "$COMPOSE_FILE" --profile "$PROFILE" up
+else
+  docker compose -f "$COMPOSE_FILE" --profile "$PROFILE" up --build
+fi

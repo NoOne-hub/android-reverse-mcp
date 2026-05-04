@@ -3,6 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      network: host
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        ALL_PROXY: ${ALL_PROXY:-}
     image: android-reverse-mcp:latest
     container_name: android-reverse-mcp
     profiles: ["full-ghidra"]
@@ -25,6 +30,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      network: host
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        ALL_PROXY: ${ALL_PROXY:-}
     image: android-reverse-mcp:latest
     container_name: android-reverse-mcp-ida
     profiles: ["full-ida"]
@@ -46,8 +56,13 @@ services:
   ghidra-sidecar:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: android-reverse-mcp:latest
+      dockerfile: docker/ghidra-sidecar.Dockerfile
+      network: host
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        ALL_PROXY: ${ALL_PROXY:-}
+    image: android-reverse-mcp-ghidra-sidecar:latest
     container_name: ghidra-sidecar
     profiles: ["full-ghidra", "ghidra-only"]
     entrypoint: ["/usr/local/bin/ghidra-sidecar-entrypoint"]
@@ -61,9 +76,6 @@ services:
       - ${WORKSPACE_DIR:-./workspace}:/workspace
 
   ida-sidecar:
-    build:
-      context: .
-      dockerfile: docker/ida-sidecar.Dockerfile
     image: android-reverse-mcp-ida-sidecar:latest
     container_name: ida-sidecar
     profiles: ["full-ida", "ida-only"]

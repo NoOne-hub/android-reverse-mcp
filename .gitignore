@@ -15,3 +15,5 @@ docs/superpowers/
 *.log
 .env
 .worktrees/
+.workspaces/
+bin/apktool.i64
